@@ -181,13 +181,14 @@ def get_movies(imdbKey):
     response.status = 200
     return {"data": found}
 
+#curl -X GET http://localhost:7007/movies/tt4975722
 
 @get('/performances')
 def get_performances():
     c = db.cursor()
     c.execute(
         """
-        WITH sold_tickets(p_id, number_sold) AS (
+        WITH sold_tickets AS (
             SELECT p_id, count() AS number_sold
             FROM tickets
             GROUP BY p_id
@@ -205,7 +206,7 @@ def get_performances():
 
     found = [{"performanceId": p_id, "date": start_date, "startTime": start_time, "title": title, "year": production_year, "theater": name, "remainingSeats": (capacity-tickets_left)}
          for p_id, start_date, start_time, title, production_year, name, capacity, tickets_left in c]
-   
+
     response.status = 200
     return {"data": found}
 
@@ -215,11 +216,10 @@ def buy_ticket():
     c = db.cursor()
 
     c.execute(
-
         """
-        SELECT username
-        FROM users
-        WHERE username = ? AND pwd = ?
+        SELECT user_name
+        FROM customers
+        WHERE user_name = ? AND password = ?
         """,
         [order['username'], hash(order['pwd'])]
     )
@@ -237,15 +237,15 @@ def buy_ticket():
             FROM tickets
             GROUP BY p_id
         )
-        SELECT (capacity - coalesce(number_sold,0)) AS tickets_left
-        FROM performances
-        JOIN theatres
-        USING(name)
-        LEFT OUTER JOIN tickets_sold
-        USING(p_id)
-        WHERE p_id = ? AND tickets_left > 0
+        SELECT (capacity - coalesce(number_sold, 0)) AS tickets_left
+        FROM   performances
+        JOIN   theatres
+        USING  (name)
+        LEFT OUTER JOIN sold_tickets
+        USING  (p_id)
+        WHERE   p_id = ? AND tickets_left > 0
         """,
-        [order['p_id']]
+        [order['performanceId']]
     ) 
 
     found = c.fetchone()
@@ -256,10 +256,10 @@ def buy_ticket():
 
     c.execute("""
         INSERT
-        INTO tickets(p_id, username)
+        INTO tickets(p_id, user_name)
         VALUES (?, ?)
         """, 
-        [order['p_id'], order['username']]
+        [order['performanceId'], order['username']]
     )
 
     c.execute("""
@@ -287,21 +287,21 @@ def get_tickets(username):
     c.execute(
         """
         WITH user_tickets AS (
-            SELECT p_id, username, count(t_id) AS bought_tickets
+            SELECT p_id, user_name, count(t_id) AS bought_tickets
             FROM performances
             LEFT OUTER JOIN tickets
             USING (p_id)
-            WHERE username = ?
+            WHERE user_name = ?
             GROUP BY p_id
         )
         
-        SELECT date, time, theater, title, year, bought_tickets
+        SELECT start_date, start_time, name, title, production_year, bought_tickets
         FROM performances
         JOIN movies
         USING (imdb)
-        JOIN ticket_count
+        JOIN user_tickets
         USING(p_id)
-        WHERE username = ?
+        WHERE user_name = ?
         """,
         [username, username] 
     )
